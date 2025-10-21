@@ -23,6 +23,11 @@ This backend provides a **semantic search API** over a database of diseases and 
 
 ---
 
+## Demo
+---
+<a href="https://youtu.be/9HBUcrDV36o" style="display:inline-block;padding:10px 20px;background-color:#007bff;color:white;text-decoration:none;border-radius:5px;">Watch Demo</a>
+
+
 ## Endpoints
 
 ### `GET /symptoms`
