@@ -10,10 +10,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@langchain/ollama": "^0.2.4",
+    "@langchain/core": "^1.0.1",
+    "@langchain/langgraph": "^1.0.1",
     "bson": "^6.10.4",
     "csv-parser": "^3.2.0",
     "express": "^5.1.0",
-    "mongodb": "^6.20.0"
+    "mongodb": "^6.20.0",
+    "zod": "^3.25.76"
   }
 }
