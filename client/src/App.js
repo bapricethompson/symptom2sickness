@@ -1,5 +1,6 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import "./App.css";
 
 function App() {
@@ -92,9 +93,12 @@ function App() {
               <div className="result-section">
                 <h3>Treatment Plan</h3>
                 <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
                   components={{
                     table: ({ node, ...props }) => (
-                      <table className="markdown-table" {...props} />
+                      <div style={{ overflowX: "auto" }}>
+                        <table className="markdown-table" {...props} />
+                      </div>
                     ),
                   }}
                 >

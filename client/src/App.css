@@ -68,6 +68,7 @@
 }
 
 .result-section {
+  overflow-x: auto;
   background: #f0f0f0;
   padding: 15px;
   margin-bottom: 10px;
