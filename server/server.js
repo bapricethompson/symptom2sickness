@@ -1,5 +1,4 @@
 const express = require("express");
-const util = require("util");
 const cors = require("cors");
 
 const { Binary } = require("bson");
@@ -278,14 +277,12 @@ const graphStateData = {
   toolCalls: [],
 };
 
-// NODE: query symptoms database
 async function querySymptomsNode(state) {
   console.log("Query SYMPTOMS STATE:", state);
 
-  // INVOKE THE TOOL!
   const toolResult = await querySymptomsDatabaseTool.invoke({
     query: state.userInput,
-    numResults: 5, // or whatever number you want
+    numResults: 5,
   });
   console.log("TOOL RESULT:", toolResult);
 
@@ -401,7 +398,6 @@ async function findNearbyCareNode(state) {
   };
 }
 
-// step 1: define a graph
 const workflow = new StateGraph({ channels: graphStateData });
 
 workflow.addNode("querySymptomsNode", querySymptomsNode);
@@ -410,7 +406,6 @@ workflow.addNode("decideNextStepNode", decideNextStepNode);
 workflow.addNode("generateTreatmentPlanNode", generateTreatmentPlanNode);
 workflow.addNode("findNearbyCareNode", findNearbyCareNode);
 
-// step 3: define edges
 workflow.addEdge(START, "querySymptomsNode");
 
 workflow.addEdge("querySymptomsNode", "assessSeriousnessNode");
@@ -424,14 +419,13 @@ workflow.addConditionalEdges("assessSeriousnessNode", (state) => {
 });
 workflow.addEdge("generateTreatmentPlanNode", END);
 workflow.addEdge("findNearbyCareNode", END);
-// step 4: compile workflow/graph
+
 const graph = workflow.compile();
 
-// EXPRESS API CODE GOES HERE
-app.post("/agenttest", async function (req, res) {
+app.post("/symptoms", async function (req, res) {
   const result = await graph.invoke({
     userInput: req.body.diseasesLike,
-    zipCode: req.body.zipCode, // 👈 add this line
+    zipCode: req.body.zipCode,
   });
 
   console.log("GRAPH RESULT:", result);
