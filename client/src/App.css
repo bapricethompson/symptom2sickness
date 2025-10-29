@@ -91,3 +91,38 @@
     transform: rotate(360deg);
   }
 }
+
+.markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5em 0;
+  font-size: 1em;
+  background: #fff;
+  table-layout: auto;
+  word-break: break-word;
+}
+
+.markdown-table th,
+.markdown-table td {
+  border: 1px solid #d0d7de;
+  padding: 10px 14px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-table th {
+  background: #f6f8fa;
+  font-weight: 700;
+  color: #222;
+  font-size: 1.05em;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.markdown-table tr:nth-child(even) {
+  background: #f9fafb;
+}
+
+.markdown-table tr:hover {
+  background: #eef6fb;
+}

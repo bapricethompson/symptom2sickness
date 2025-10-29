@@ -1,5 +1,5 @@
 import { useState } from "react";
-import ReactMarkdown from "react-markdown"; // ✅ import Markdown renderer
+import ReactMarkdown from "react-markdown";
 import "./App.css";
 
 function App() {
@@ -16,7 +16,7 @@ function App() {
     setResult(null);
 
     try {
-      const response = await fetch("http://localhost:4000/agenttest", {
+      const response = await fetch("http://localhost:4000/symptoms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ diseasesLike: symptoms, zipCode }),
@@ -75,10 +75,31 @@ function App() {
                 <p>{result.summary}</p>
               </div>
             )}
+
+            {result.seriousnessResult && (
+              <div className="result-section">
+                <h3>Seriousness Assessment</h3>
+                <p>
+                  <strong>Seriousness:</strong>{" "}
+                  {result.seriousnessResult.seriousness}
+                  <br />
+                  <strong>Reason:</strong> {result.seriousnessResult.reason}
+                </p>
+              </div>
+            )}
+
             {result.treatmentPlan && (
               <div className="result-section">
                 <h3>Treatment Plan</h3>
-                <ReactMarkdown>{result.treatmentPlan}</ReactMarkdown>
+                <ReactMarkdown
+                  components={{
+                    table: ({ node, ...props }) => (
+                      <table className="markdown-table" {...props} />
+                    ),
+                  }}
+                >
+                  {result.treatmentPlan}
+                </ReactMarkdown>
               </div>
             )}
             {result.careRecommendations?.recommendedOptions?.length > 0 && (
