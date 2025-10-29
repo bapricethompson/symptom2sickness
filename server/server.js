@@ -1,9 +1,11 @@
 const express = require("express");
 const util = require("util");
+const cors = require("cors");
 
 const { Binary } = require("bson");
 const { MongoClient } = require("mongodb");
 const { ChatOllama, OllamaEmbeddings } = require("@langchain/ollama");
+const { ChatOpenAI } = require("@langchain/openai");
 const { HumanMessage, SystemMessage } = require("@langchain/core/messages");
 const { StateGraph, START, END } = require("@langchain/langgraph");
 const { StructuredTool } = require("@langchain/core/tools");
@@ -13,6 +15,7 @@ const axios = require("axios");
 const app = express();
 const port = 4000;
 
+app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
 
@@ -27,16 +30,6 @@ const INDEX_NAME = "vector_index";
 
 const LLM_MODEL = "gpt-oss:20b";
 const EMBEDDING_MODEL = "qwen3-embedding";
-
-const llm = new ChatOllama({
-  baseUrl: OLLAMA_BASE_URL,
-  model: LLM_MODEL,
-});
-
-const embeddings = new OllamaEmbeddings({
-  baseUrl: OLLAMA_BASE_URL,
-  model: EMBEDDING_MODEL,
-});
 
 const mongoClient = new MongoClient(MONGO_URI);
 
@@ -104,41 +97,55 @@ class FindNearbyCareTool extends StructuredTool {
   });
 
   async _call({ zipCode, urgency }) {
-    const axios = require("axios");
-
-    // Nominatim search URL with US country code
-    const url = `https://nominatim.openstreetmap.org/search`;
-    const params = {
-      q: `hospital near ${zipCode}`,
-      format: "json",
-      countrycodes: "us",
-      limit: 5,
-    };
-
     try {
-      const response = await axios.get(url, {
-        params,
-        headers: {
-          "User-Agent": "MyAppName/1.0 (myemail@example.com)",
-        },
-      });
+      // Step 1: Get lat/lon for ZIP code
+      const zipResponse = await axios.get(
+        "https://nominatim.openstreetmap.org/search",
+        {
+          params: {
+            postalcode: zipCode,
+            country: "us",
+            format: "json",
+            limit: 1,
+          },
+          headers: { "User-Agent": "MyAppName/1.0 (myemail@example.com)" },
+        }
+      );
 
-      const hospitals = response.data.map((h) => ({
+      if (!zipResponse.data.length) {
+        return { urgency, recommendedOptions: [] };
+      }
+
+      const { lat, lon } = zipResponse.data[0]; // ✅ extract lat/lon here
+
+      // Step 2: Find hospitals near lat/lon
+      const hospitalsResponse = await axios.get(
+        "https://nominatim.openstreetmap.org/search",
+        {
+          params: {
+            q: "hospital",
+            format: "json",
+            limit: 5,
+            lat,
+            lon,
+            countrycodes: "us", // restrict to US
+          },
+          headers: { "User-Agent": "MyAppName/1.0 (myemail@example.com)" },
+        }
+      );
+
+      const hospitals = hospitalsResponse.data.map((h) => ({
         name: h.display_name,
         lat: h.lat,
         lon: h.lon,
       }));
 
-      return {
-        urgency,
-        recommendedOptions: hospitals,
-      };
+      console.log("Found hospitals:", hospitals);
+
+      return { urgency, recommendedOptions: hospitals };
     } catch (err) {
       console.error("Error fetching hospitals:", err.message);
-      return {
-        urgency,
-        recommendedOptions: [],
-      };
+      return { urgency, recommendedOptions: [] };
     }
   }
 }
@@ -241,9 +248,33 @@ const generateTreatmentPlanTool = new GenerateTreatmentPlanTool();
 const assessSeriousnessTool = new AssessSeriousnessTool();
 const findNearbyCareTool = new FindNearbyCareTool();
 
+const llm = new ChatOpenAI({
+  apiKey: "",
+  configuration: {
+    baseURL: "http://100.64.0.1:11434/v1",
+  },
+  model: LLM_MODEL,
+  tools: [
+    summarizeDiseaseSuggestionsTool,
+    querySymptomsDatabaseTool,
+    generateTreatmentPlanTool,
+    assessSeriousnessTool,
+    findNearbyCareTool,
+  ],
+});
+
+const embeddings = new OllamaEmbeddings({
+  baseUrl: OLLAMA_BASE_URL,
+  model: EMBEDDING_MODEL,
+});
+
 const graphStateData = {
   userInput: "",
+  zipCode: "",
   summary: "",
+  seriousnessResult: null,
+  careRecommendations: null,
+  treatmentPlan: null,
   toolCalls: [],
 };
 
@@ -269,28 +300,36 @@ async function querySymptomsNode(state) {
     ],
   });
 
-  const llmWithTool = llm.bind({ tools: [summarizeDiseaseSuggestionsTool] });
-  const response = await llmWithTool.invoke([message]);
-  console.log("RAW LLM RESPONSE:", response);
+  const topDiseases = toolResult
+    .slice(0, 3)
+    .map(
+      (r, i) => `${i + 1}. ${r.disease} (score ${(r.score * 100).toFixed(1)}%)`
+    )
+    .join("\n");
 
-  const toolCall = response.tool_calls?.[0]?.args || {};
-  const { summary, suspectedDisease } = toolCall;
+  const summaryText = `Top similar diseases:\n${topDiseases}`;
+  const suspectedDisease = toolResult[0]?.disease || "Unknown condition";
+
+  // 🪄 Use the summarization tool directly (statefully)
+  const summarized = await summarizeDiseaseSuggestionsTool.invoke({
+    summary: summaryText,
+    suspectedDisease,
+  });
 
   return {
-    toolCalls: response.tool_calls,
-    summary,
-    suspectedDisease,
+    ...state,
+    queryResults: toolResult,
+    summary: summarized.summary,
+    suspectedDisease: summarized.suspectedDisease,
   };
 }
 
 async function assessSeriousnessNode(state) {
   console.log("Assess SERIOUSNESS STATE:", state);
 
-  // Use the suspected disease identified earlier
   const disease = state.suspectedDisease || "Unknown condition";
   const symptoms = state.userInput || "";
 
-  // Actually invoke the AssessSeriousnessTool
   const seriousnessRaw = await assessSeriousnessTool.invoke({
     disease,
     symptoms,
@@ -298,7 +337,6 @@ async function assessSeriousnessNode(state) {
 
   console.log("Assess Seriousness Result:", seriousnessRaw);
 
-  // Try to safely parse the JSON (since model responses are strings)
   let seriousnessResult;
   try {
     seriousnessResult = JSON.parse(seriousnessRaw);
@@ -318,17 +356,19 @@ async function decideNextStepNode(state) {
 
   console.log("Deciding next step based on seriousness:", seriousness);
 
-  if (seriousness === "mild" || seriousness === "moderate") {
-    return { next: "generateTreatmentPlanNode" };
-  } else {
-    return { next: "findNearbyCareNode" };
-  }
+  return {
+    ...state,
+    nextStep:
+      seriousness === "severe"
+        ? "findNearbyCareNode"
+        : "generateTreatmentPlanNode",
+  };
 }
 
 async function generateTreatmentPlanNode(state) {
   console.log("Generating treatment plan for:", state);
 
-  const likelyDisease = state.toolCalls?.[0]?.disease || "Unknown condition";
+  const likelyDisease = state.suspectedDisease || "Unknown condition";
 
   const treatmentPlan = await generateTreatmentPlanTool.invoke({
     disease: likelyDisease,
@@ -346,7 +386,6 @@ async function generateTreatmentPlanNode(state) {
 async function findNearbyCareNode(state) {
   console.log("Finding nearby care for:", state);
 
-  // you’ll need to pass the ZIP from the API request into the graph invocation (see below)
   const zipCode = state.zipCode || "00000";
 
   const careRecommendations = await findNearbyCareTool.invoke({
@@ -366,25 +405,25 @@ async function findNearbyCareNode(state) {
 const workflow = new StateGraph({ channels: graphStateData });
 
 workflow.addNode("querySymptomsNode", querySymptomsNode);
-// workflow.addNode("assessSeriousnessNode", assessSeriousnessNode);
-// workflow.addNode("decideNextStepNode", decideNextStepNode);
-// workflow.addNode("generateTreatmentPlanNode", generateTreatmentPlanNode);
+workflow.addNode("assessSeriousnessNode", assessSeriousnessNode);
+workflow.addNode("decideNextStepNode", decideNextStepNode);
+workflow.addNode("generateTreatmentPlanNode", generateTreatmentPlanNode);
 workflow.addNode("findNearbyCareNode", findNearbyCareNode);
 
 // step 3: define edges
 workflow.addEdge(START, "querySymptomsNode");
 
-workflow.addEdge("querySymptomsNode", "findNearbyCareNode");
-workflow.addEdge("findNearbyCareNode", END);
-// workflow.addConditionalEdges("assessSeriousnessNode", (state) => {
-//   const seriousness =
-//     state.seriousnessResult?.seriousness?.toLowerCase?.() || "mild";
+workflow.addEdge("querySymptomsNode", "assessSeriousnessNode");
 
-//   if (seriousness === "severe") return "findNearbyCareNode";
-//   return "generateTreatmentPlanNode";
-// });
-// workflow.addEdge("generateTreatmentPlanNode", END);
-// workflow.addEdge("findNearbyCareNode", END);
+workflow.addConditionalEdges("assessSeriousnessNode", (state) => {
+  const seriousness =
+    state.seriousnessResult?.seriousness?.toLowerCase?.() || "mild";
+
+  if (seriousness === "severe") return "findNearbyCareNode";
+  return "generateTreatmentPlanNode";
+});
+workflow.addEdge("generateTreatmentPlanNode", END);
+workflow.addEdge("findNearbyCareNode", END);
 // step 4: compile workflow/graph
 const graph = workflow.compile();
 

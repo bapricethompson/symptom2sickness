@@ -1,12 +1,13 @@
 const express = require("express");
 const util = require("util");
 require("dotenv").config();
+const cors = require("cors");
 
 const { Binary } = require("bson");
 const { MongoClient } = require("mongodb");
 const { OllamaEmbeddings } = require("@langchain/ollama");
 
-const OLLAMA_BASE_URL = "http://100.64.0.1:11434";
+const OLLAMA_BASE_URL = "http://100.64.0.1:11434/v1";
 const OLLAMA_MODEL = "qwen3-embedding";
 
 const MONGO_URI =
@@ -26,7 +27,19 @@ const mongoClient = new MongoClient(MONGO_URI);
 const app = express();
 const port = 4000;
 
+const corsOptions = {
+  origin: [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5000",
+    "http://127.0.0.1:5000",
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+app.use(cors(corsOptions));
 app.use(express.json());
+
 app.use(express.static("public"));
 
 app.get("/symptoms", async function (req, res) {
